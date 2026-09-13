@@ -2,19 +2,20 @@
   "name": "email-service",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "src/index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node src/index.js",
+    "test:send": "node test/sendTestJob.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "module",
   "dependencies": {
-    "@sendgrid/mail": "^8.1.6",
     "bullmq": "^5.79.2",
     "dotenv": "^17.4.2",
     "ioredis": "^5.11.1",
-    "mongoose": "^9.7.3"
+    "mongoose": "^9.7.3",
+    "nodemailer": "^10.0.7"
   }
 }
