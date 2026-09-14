@@ -4,9 +4,9 @@
 ![Redis](https://img.shields.io/badge/Redis-DC382D?style=for-the-badge&logo=redis&logoColor=white)
 ![BullMQ](https://img.shields.io/badge/BullMQ-FF4438?style=for-the-badge)
 ![MongoDB](https://img.shields.io/badge/MongoDB-4EA94B?style=for-the-badge&logo=mongodb&logoColor=white)
-![Nodemailer](https://img.shields.io/badge/Nodemailer-22B573?style=for-the-badge)
+![Brevo](https://img.shields.io/badge/Brevo-0B996E?style=for-the-badge)
 
-A standalone, horizontally-scalable email worker: it consumes jobs from a Redis/BullMQ queue, sends the message over SMTP, and logs the delivery outcome to MongoDB. It was extracted out of [Bind](#how-this-connects-to-bind), a full-stack chat app, so that sending mail could be deployed, scaled, and failed independently of the main API.
+A standalone, horizontally-scalable email worker: it consumes jobs from a Redis/BullMQ queue, sends the message via Brevo's transactional email API, and logs the delivery outcome to MongoDB. It was extracted out of [Bind](#how-this-connects-to-bind), a full-stack chat app, so that sending mail could be deployed, scaled, and failed independently of the main API.
 
 ## Architecture
 
@@ -17,11 +17,11 @@ graph TD
     subgraph WorkerService [bind-email-service on Render]
         Queue -->|"② dequeue<br/>limiter 1/2000ms"| Worker["Email Worker<br/>BullMQ"]
         Worker -->|"③ log: pending"| Mongo[("MongoDB<br/>EmailLog")]
-        Worker -->|"④ sendMail()"| SMTP["Brevo SMTP Relay"]
+        Worker -->|"④ POST /v3/smtp/email"| API["Brevo Email API<br/>(HTTPS)"]
         Worker -->|"⑥ update status"| Mongo
     end
 
-    SMTP -->|"⑤ deliver"| Inbox["Recipient Inbox"]
+    API -->|"⑤ deliver"| Inbox["Recipient Inbox"]
     Worker -.->|"on failure: retry ×3<br/>backoff 5s→10s→20s"| Queue
 ```
 
@@ -63,18 +63,15 @@ Copy `.env.sample` to `.env` and fill in:
 | `PORT`                | no       | Defaults to `4000`. Only used by the dummy health-check HTTP server.  |
 | `REDIS_URL`           | yes      | Must be the **same Redis instance** the producer(s) enqueue to. Use `rediss://` (TLS) for Upstash — plain `redis://` will silently fail to connect. |
 | `MONGODB_URI`         | yes      | Used only for the `EmailLog` collection — can be its own database, doesn't need to match Bind's main DB. |
-| `SMTP_HOST`           | yes      | e.g. `smtp-relay.brevo.com`. Any SMTP provider works — this project isn't tied to a specific vendor's SDK. |
-| `SMTP_PORT`           | yes      | `587` for STARTTLS (the common free-tier default).                    |
-| `SMTP_USER`           | yes      | Provider SMTP login.                                                  |
-| `SMTP_PASS`           | yes      | Provider SMTP key/password — not your account password.               |
-| `EMAIL_FROM_ADDRESS`  | yes      | Must be an address verified with your SMTP provider, or sends are rejected. |
+| `BREVO_API_KEY`       | yes      | From Brevo's dashboard: SMTP & API → API Keys → Generate a new API key. Not the same thing as an SMTP key — see [Design notes](#design-notes). |
+| `EMAIL_FROM_ADDRESS`  | yes      | Must be an address verified with Brevo, or sends are rejected.        |
 
 ## Running locally
 
 1. `npm install`
 2. Copy `.env.sample` to `.env` and fill in the table above.
 3. `npm start` — starts the worker, listening for jobs on `email-queue`.
-4. In another terminal: `npm run test:send -- you@example.com` — enqueues a real job and drives it through the full pipeline (Redis → BullMQ → worker → SMTP → MongoDB log) without needing Bind's backend running at all.
+4. In another terminal: `npm run test:send -- you@example.com` — enqueues a real job and drives it through the full pipeline (Redis → BullMQ → worker → Brevo API → MongoDB log) without needing Bind's backend running at all.
 
 ## Deployment
 
@@ -92,7 +89,7 @@ A few decisions worth knowing about if you're reading this as a reference:
 - **Rate-limited on purpose.** The worker is capped at 1 job / 2000ms (`emailWorker.js`) so a traffic spike can't blow through a free-tier SMTP provider's daily/per-second limits.
 - **Retries are the queue's job, not the worker's.** `attempts: 3` with exponential backoff is configured on the producer side (`defaultJobOptions` in `emailQueue.js`); a thrown error in the worker is enough to trigger it — no manual retry logic here.
 - **Every attempt is audited.** `EmailLog` gets a `pending` row before the send is attempted and is updated to `success`/`failed` (with the real error message) after — so a silent crash mid-send still leaves a trace instead of a gap.
-- **Provider-agnostic delivery.** `src/config/mailer.js` talks plain SMTP via Nodemailer, not a vendor SDK. Moving off Brevo to Gmail, SMTP2GO, SES, or anything else is an env var change, not a code change.
+- **HTTPS API, not SMTP.** This project originally sent mail via plain SMTP (Nodemailer), which is provider-agnostic in theory. In practice, Render's free tier blocks or throttles outbound SMTP ports (25/465/587) to curb spam abuse — the exact same code and credentials sent mail instantly from a local machine but timed out from every attempt in production. `src/config/mailer.js` now calls Brevo's transactional email API directly over HTTPS (port 443, never blocked). The trade-off is real — this couples the code to Brevo's API shape instead of a generic SMTP transport — but a lot of free hosts share this restriction, and most email providers offer an equivalent HTTP API for exactly this reason, so the fix generalizes better than it first looks.
 
 ## Project structure
 
@@ -103,7 +100,7 @@ src/
 ├── config/
 │   ├── db.js               # MongoDB connection
 │   ├── redisClient.js       # shared ioredis connection for BullMQ
-│   └── mailer.js            # Nodemailer/SMTP transport
+│   └── mailer.js            # Brevo transactional email API client
 ├── models/
 │   └── emailLog.js          # delivery audit trail schema
 ├── templates/                # HTML email templates (OTP, welcome)
