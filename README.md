@@ -6,7 +6,7 @@
 ![MongoDB](https://img.shields.io/badge/MongoDB-4EA94B?style=for-the-badge&logo=mongodb&logoColor=white)
 ![Brevo](https://img.shields.io/badge/Brevo-0B996E?style=for-the-badge)
 
-A standalone, horizontally-scalable email worker: it consumes jobs from a Redis/BullMQ queue, sends the message via Brevo's transactional email API, and logs the delivery outcome to MongoDB. It was extracted out of [Bind](#how-this-connects-to-bind), a full-stack chat app, so that sending mail could be deployed, scaled, and failed independently of the main API.
+A standalone, horizontally-scalable email worker: it consumes jobs from a Redis/BullMQ queue, sends the message via Brevo's transactional email API, and logs the delivery outcome to MongoDB. It was extracted out of [Bind](#how-this-connects-to-bind), ( Main Repo-https://github.com/Siddharth-732/Bind ) a full-stack chat app, so that sending mail could be deployed, scaled, and failed independently of the main API.
 
 ## Architecture
 
